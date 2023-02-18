@@ -4,7 +4,7 @@
 #include "llvm/IR/PassManager.h"
 
 #include "llvm/Support/raw_ostream.h"
-
+#include <unordered_map>
 using namespace std;
 
 using namespace llvm;
@@ -20,45 +20,196 @@ void visitor(Function &F){
 	    errs() << "ValueNumbering: " << F.getName() << "\n";
 	    
 	    // Comment this line
-        if (F.getName() != func_name) return;
+        //if (F.getName() != func_name) return;
 		
+        // set maps to store every sets 
+        unordered_map<string, std::vector<string>> block_UEVar;
+        unordered_map<string, std::vector<string>> block_VarKill;
+        unordered_map<string, std::vector<string>> block_LiveOut;
+
+        // retrieve UEVar and VarKill set for each block 
         for (auto& basic_block : F)
         {
+            //get block name
+            string block_name = string(basic_block.getName());
+            // initialize vector to store VarKill and UEVar in this block 
+            std::vector<string> VarKill;
+            std::vector<string> UEVar;
+           
+            // start to retrieve UEVar and VarKill sets 
             for (auto& inst : basic_block)
             {
-                errs() << inst << "\n";
                 if(inst.getOpcode() == Instruction::Load){
-                    errs() << "This is Load"<<"\n";
+                    string var = string(inst.getOperand(0)->getName());
+
+                    // For load situation if we can't fina a var in VarKill or UEVar  
+		    // we push it to the vector of UeVar
+                    if(std::find(VarKill.begin(), VarKill.end(), var) == VarKill.end()\
+				    && std::find(UEVar.begin(), UEVar.end(), var) == UEVar.end()){
+                        UEVar.push_back(var);
+                    }
                 }
                 if(inst.getOpcode() == Instruction::Store){
-                    errs() << "This is Store"<<"\n";
+		//store operation part, caculate for VarKill
+                    string var1 = "";
+                    string var2 = "";
+                    // if first operand is a constant, ignore it useless
+                    if(isa<ConstantInt>(inst.getOperand(0))){
+                        var1 = "";
+                    }
+                    else{
+                        //if first operand is a binary op 
+                        var1 = string(dyn_cast<User>(dyn_cast<User>(inst.getOperand(0))\
+						->getOperand(0))->getOperand(0)->getName());
+                        var2 = string(dyn_cast<User>(dyn_cast<User>(inst.getOperand(0))\
+						->getOperand(1))->getOperand(0)->getName());
+                        // if first operand returns empty so it may a register or load
+                        if(string(inst.getOperand(0)->getName()) == ""){
+                            var1 = string(dyn_cast<User>(inst.getOperand(0))->getOperand(0)->getName());
+                        }
+                        // if var1 is a constant
+                        if(isa<ConstantInt>(dyn_cast<User>(dyn_cast<User>(inst.getOperand(0))\
+							->getOperand(0))->getOperand(0))){
+                            var1 = "";
+                        }
+
+                        // if var2 is a constant 
+                        if(isa<ConstantInt>(dyn_cast<User>(dyn_cast<User>(inst.getOperand(0))\
+							->getOperand(1))->getOperand(0))){
+                            var2 = "";
+                        }
+                    }
+
+                    string var_name = string(inst.getOperand(1)->getName());
+
+                    // if var1 is not in VarKill set or UEVar set push it
+                    if(std::find(VarKill.begin(), VarKill.end(), var1) == VarKill.end() \
+				    && std::find(UEVar.begin(), UEVar.end(), var1) == UEVar.end()){
+                        UEVar.push_back(var1);
+                    }
+
+                    /* if var2 is not in VarKill set or  UEVar set */
+                    if(std::find(VarKill.begin(), VarKill.end(), var2) == VarKill.end() \
+				    && std::find(UEVar.begin(), UEVar.end(), var2) == UEVar.end()){
+                        UEVar.push_back(var2);
+                    }
+
+                    // if var is not already in VarKill push it
+                    if(std::find(VarKill.begin(), VarKill.end(), var_name) == VarKill.end()){
+                        VarKill.push_back(var_name);
+                    }
                 }
-                if (inst.isBinaryOp())
-                {
-                    errs() << "Op Code:" << inst.getOpcodeName()<<"\n";
-                    if(inst.getOpcode() == Instruction::Add){
-                        errs() << "This is Addition"<<"\n";
-                    }
-                    if(inst.getOpcode() == Instruction::Load){
-                        errs() << "This is Load"<<"\n";
-                    }
-                    if(inst.getOpcode() == Instruction::Mul){
-                        errs() << "This is Multiplication"<<"\n";
+   
+            } //end for inst
+
+            // Save sets to related block
+            block_UEVar.insert(make_pair(block_name, UEVar));
+            block_VarKill.insert(make_pair(block_name, VarKill));
+
+        } // end for block
+
+        // initialize set for LiveOut
+        for (auto& basic_block : F){
+            vector<string> emptySet = {};
+            block_LiveOut.insert(make_pair(string(basic_block.getName()), emptySet));
+        }
+
+        // Compute liveout var by 
+        unordered_map<string ,std::vector<string>>::const_iterator block_find;
+        bool cont = true;
+        while(cont){
+            cont = false;
+            for (auto& basic_block : F){
+                std::vector<string> liveOut;
+                std::vector<string> liveOut_temp;
+                std::vector<string> liveOut_succ;
+                std::vector<string> VarKill_succ;
+                std::vector<string> UEVar_succ;
+                std::vector<string> union_succ;
+          
+                for(BasicBlock *succ : successors(&basic_block)){
+                    std::vector<string> diff_temp;
+                    std::vector<string> union_temp;
+
+                    // check if the Liveout can be find of current block
+                    block_find = block_LiveOut.find(string(succ->getName()));
+                    liveOut_succ = block_find->second;
+                    block_find = block_VarKill.find(string(succ->getName()));
+                    VarKill_succ = block_find->second;
+                    block_find = block_UEVar.find(string(succ->getName()));
+                    UEVar_succ = block_find->second;
+
+                    // compute LiveOut(X) - VarKill(X) 
+                    std::set_difference(liveOut_succ.begin(), liveOut_succ.end(),\
+				    VarKill_succ.begin(), VarKill_succ.end(), std::back_inserter(diff_temp));
+                   
+                    // add UEVar(X) to liveout
+                    std::set_union(diff_temp.begin(), diff_temp.end(),\
+				    UEVar_succ.begin(), UEVar_succ.end(), std::back_inserter(union_temp));
+
+                    for(auto it: union_temp){
+                        union_succ.push_back(it);
                     }
                     
-                    // see other classes, Instruction::Sub, Instruction::UDiv, Instruction::SDiv
-                    // errs() << "Operand(0)" << (*inst.getOperand(0))<<"\n";
-                    auto* ptr = dyn_cast<User>(&inst);
-		    		//errs() << "\t" << *ptr << "\n";
-                    for (auto it = ptr->op_begin(); it != ptr->op_end(); ++it) {
-                        errs() << "\t" <<  *(*it) << "\n";
-                        // if ((*it)->hasName()) 
-			    		// errs() << (*it)->getName() << "\n";                      
-                    }
-                } // end if
-            } // end for inst
-        } // end for block
-        
+                }
+
+                // Compute Union of Successors 
+		std::sort(union_succ.begin(), union_succ.end());
+                union_succ.erase(std::unique(union_succ.begin(),\
+				       	union_succ.end()), union_succ.end());
+
+                // retrieve current LiveOut 
+                block_find = block_LiveOut.find(string(basic_block.getName()));
+                liveOut = block_find->second;
+
+                // If LiveOut(N) is changed mark it 
+                if(liveOut != union_succ){
+                    cont = true;
+                }
+
+                // Update LiveOut 
+                auto it = block_LiveOut.find(string(basic_block.getName()));
+                it->second = union_succ;
+                
+                
+            }
+        }
+
+        // Print out result we already has
+        for (auto& basic_block : F){
+            std::vector<string> UEVar_temp;
+            std::vector<string> VarKill_temp;
+            std::vector<string> LiveOut_temp;
+            unordered_map<string ,std::vector<string>>::const_iterator block_find;
+
+            block_find = block_UEVar.find(string(basic_block.getName()));
+            UEVar_temp = block_find->second;
+	    std::sort(UEVar_temp.begin(), UEVar_temp.end());
+            errs() << "------ " << basic_block.getName() << " ------\n";
+            errs() << "UEVAR: ";
+            for(auto a: UEVar_temp){
+                errs() << a << " ";
+            }
+            errs() << "\n";
+                
+            block_find = block_VarKill.find(string(basic_block.getName()));
+            VarKill_temp = block_find->second;
+	    std::sort(VarKill_temp.begin(), VarKill_temp.end());
+            errs() << "VARKILL: ";
+            for(auto a: VarKill_temp){
+                errs() << a << " ";
+            }
+            errs() << "\n";
+
+            block_find = block_LiveOut.find(string(basic_block.getName()));
+            LiveOut_temp = block_find->second;
+	    std::sort(LiveOut_temp.begin(), LiveOut_temp.end());
+            errs() << "LIVEOUT: ";
+            for(auto a: LiveOut_temp){
+                errs() << a << " ";
+            }
+            errs() << "\n";
+        } 
 }
 
 
