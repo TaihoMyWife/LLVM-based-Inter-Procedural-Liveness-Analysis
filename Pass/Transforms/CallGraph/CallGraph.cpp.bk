@@ -1,0 +1,61 @@
+#include "llvm/Analysis/CallGraph.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Passes/PassPlugin.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Passes/PassBuilder.h"
+using namespace llvm;
+
+namespace {
+
+struct CallGraphPass : public ModulePass<CallGraphPass> {
+    static char ID;
+    CallGraphPass() : ModulePass(ID) {}
+    public:
+        CallGraphPass(CallGraphPass&&) = default;
+        CallGraphPass& operator=(CallGraphPass&&) = default;
+
+    bool runOnModule(Module &M) override {
+        CallGraph CG(M);
+
+        for (auto &CGNPair : CG) {
+            CallGraphNode *CGN = CGNPair.second.get();
+            Function *Caller = CGN->getFunction();
+
+            if (!Caller) continue;  // Skip external nodes
+
+            for (auto &CallRecord : *CGN) {
+                Function *Callee = CallRecord.second->getFunction();
+                if (Callee) {
+                    errs() << Caller->getName() << " calls " << Callee->getName() << "\n";
+                }
+            }
+        }
+
+        return false;  // Not modifying the module.
+    }
+};
+
+char CallGraphPass::ID = 0;  // Static ID initialization
+
+}  // end of anonymous namespace
+
+extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK llvmGetPassPluginInfo() {
+    return {
+        LLVM_PLUGIN_API_VERSION,
+        "CallGraphPass",
+        LLVM_VERSION_STRING,
+        [](PassBuilder &PB) {
+            PB.registerPipelineParsingCallback(
+                [](StringRef Name, FunctionPassManager &FPM, ArrayRef<PassBuilder::PipelineElement>) {
+                    if (Name == "callgraph-pass") {
+                        FPM.addPass(CallGraphPass());
+                        return true;
+                    }
+                    return false;
+                }
+            );
+        }
+    };
+}
+

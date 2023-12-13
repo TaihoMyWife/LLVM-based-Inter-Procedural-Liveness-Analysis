@@ -1,4 +1,4 @@
-void test() {
+void test2() {
 	int a, b, c, d, e, f;
 	a = 5;
 	b = 4;
@@ -11,4 +11,11 @@ void test() {
 	} else {
 		e = e / b;
 	}
+	if(f<a) {
+		d = c * a;
+	} else {
+		c = c +a ;
+	}
+
+	f = d + e;
 }
