@@ -17,7 +17,7 @@ SET(CMAKE_MODULE_LINKER_FLAGS "-undefined dynamic_lookup")
 ```
 3. Move to [Pass](https://github.com/ufarooq/HelloPass-LLVM/tree/master/Pass)/**build**/ directory using cd command on your local system. Next, execute the following command. If it executes successfully, proceed to next step.
 ```bash
-cmake -DCMAKE_BUILD_TYPE=Release ../Transforms/ValueNumbering
+cmake -DCMAKE_BUILD_TYPE=Release ../Transforms/CallGraph/
 ```
 4. Next execute make and it will generate *.so files under build directory. 
 ```bash
@@ -29,11 +29,11 @@ clang -S -fno-discard-value-names -emit-llvm test.c -o test.ll
 ```
 6. After generating test.ll, run the following command to test the LLVM Pass. 
 ```bash
-opt -load-pass-plugin ../Pass/build/libLLVMValueNumberingPass.so  -passes=value-numbering test.ll
+opt -load-pass-plugin ../Pass/build/libLLVMCallGraphPass.so  -passes=value-numbering test.ll
 ```
 7. If you want to see debug information, use -debug-pass-manager flag.
 ```bash
-opt -load-pass-plugin ../Pass/build/libLLVMValueNumberingPass.so  -passes=value-numbering test.ll -debug-pass-manager
+opt -load-pass-plugin ../Pass/build/libLLVMCallGraphPass.so  -passes=value-numbering test.ll -debug-pass-manager
 ```
 ## Code Explanation 
 - The implemented Pass extends from ``FunctionPass`` class and overrides ``run(Function &F, FunctionAnalysisManager &)`` function.
